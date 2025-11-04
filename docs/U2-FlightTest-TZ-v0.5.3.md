@@ -1,180 +1,170 @@
-# U2 — ShipConfig v0.5.3
+# U2 — ТЗ FlightTest v0.5.3
 
-# U2 — ShipConfig v0.5.3 (ТЗ + Presets)
+## 0. Цель и состав
 
-Единый каноничный файл, который заменяет разрознённые «Тз U2 ShipConfig v0.5» и «U2 ShipConfig Presets v0.5». Содержит:
+Техническое задание на плейтест **FlightTest v0.5.3** для U2. Документ фиксирует поведение симуляции, управление (ПК/мобайл), коллизии, генерацию окружения, HUD, **автопилот Random** и тест‑набор. **Конфиг‑архитектура раздельная:**
 
-- **ТЗ ShipConfig (v0.5.3)** — правила и структура ship.json;
-- **ShipConfig Presets (v0.5.3)** — готовые ships/<class>/*.json.
+* `app.json` — мир/отрисовка/HUD/управление/коллизии/логирование/отладка + `paths.ship_config_path` (см. «U2 — ТЗ AppConfig v0.5.3 (canonical)»)
+* `ship.json` — все ТТХ корабля (масса, геометрия, спрайт, движители, g‑лимиты, ассисты) (см. «U2 — ТЗ ShipConfig v0.5.3 (ТЗ + Presets)»)
 
----
-
-## 1) ТЗ ShipConfig — v0.5.3
-
-### 0. Назначение и область действия
-
-Конфиг корабля (ship.json) — **единственный источник правды** по ТТХ: масса, геометрия, спрайт, движители, RCS‑капы, g‑лимиты, ассистенты. Конфиги читаются **только при запуске**. Смена корабля = заменить ship_config_path в AppConfig и перезапустить.
-
-### 1. Формат и расположение
-
-```javascript
-/config/app.json                   # общий конфиг (хранит ship_config_path)
-/ships/<class>/<id>.json           # один файл на корабль (пример: ships/fighter/fighter_v01.json)
-/assets/ships/...                  # спрайты
-```
-
-Формат JSON (рекомендуется), UTF‑8.
-
-### 2. Жизненный цикл
-
-1. Прочитать app.json → ship_config_path.
-2. Прочитать ship.json → валидировать → вычислить производные (маска, bbox, Izz если нужно).
-3. При ошибке — отказ старта с понятным сообщением; при успехе — лог «эффективных» ТТХ (СИ).
-
-### 3. Схема ship.json (ключи)
-
-- meta: { id, class, name?, version?, author?, notes? }
-- mass: { mass_kg>0, inertia_override?:{Izz_kg_m2≥0}|null }
-- geometry: { bbox_m:{ width>0, length>0 }, hull_radius_m?:number|null }
-  - Оси для orientation:"nose_right": **length ≡ X (вдоль носа)**, **width ≡ Y (поперёк)**.
-- sprite: { path, size_px{w,h}, pivot_px{x,y}, orientation, alpha_thr∈[0..255], m_per_px>0 }
-- propulsion: { main_engine_thrust_max_N≥0 }
-- rcs: { strafe_thrust_N≥0, turn_alpha_max_radps2>0, turn_omega_max_radps>0 }
-- g_limits: профили перегрузок: longitudinal/lateral {sustained_g,burst_g,burst_duration_s,recovery_cooldown_s} + behavior.smoothing_tau_s, blackout_model.
-- assist: { coupled_enabled, coupled_omega_cap_radps, coupled_alpha_cap_radps2, coupled_align_gain, coupled_deadzone_deg, autobrake_eps_mps }
-- spawn: { spawn_grace_seconds }
-- tags: string[]
-
-**Инварианты:**
-
-- assist.coupled_* ≤ rcs.turn_* (покомпонентно).
-- burst_g ≥ sustained_g; burst_duration_s > 0; recovery_cooldown_s ≥ burst_duration_s для обеих осей.
-- Применение ускорений: вдоль v → кламп /γ³, поперёк → /γ; итоговое a = min(тяга/м, g‑лимиты).
-- tight‑bbox по маске (alpha ≥ alpha_thr) в метрах через m_per_px совпадает с geometry.bbox_m в допуске.
-
-### 4. Профили g‑лимитов (ориентиры)
-
-| Профиль | Long. sustained / burst (s) | Lat. sustained / burst (s) |
-|----|----|----|
-| sport | 9g / 12g (2.0s) | 7g / 9g (1.5s) |
-| courier | 8g / 11g (1.8s) | 6g / 8g (1.3s) |
-| interceptor | 7g / 9g (2.0s) | 5g / 7g (1.5s) |
-| fighter | 6g / 8g (2.0s) | 4g / 6g (1.5s) |
-| military.medium | 4g / 6g (2.2s) | 3g / 5g (2.0s) |
-| military.heavy | 3g / 5g (3.0s) | 2g / 4g (2.5s) |
-| freighter | 2.5g / 3.5g (2.5s) | 2.0g / 3.0g (2.0s) |
-| passenger | 1.5g / 2.5g (3.0s) | 1.2g / 2.0g (2.0s) |
-| drone | 12g / 18g (1.0s) | 9g / 14g (0.8s) |
-| Рекомендации ```javascript
-behavior.smoothing_tau_s
-```: sport≈0.12–0.16; courier≈0.14; interceptor≈0.14–0.18; fighter≈0.15–0.20; military.medium≈0.20–0.22; military.heavy≈0.24–0.30; freighter≈0.24–0.28; passenger≈0.25–0.30; drone≈0.10–0.14. |    |    |
-
-### 5. Тесты приёмки (CFG)
-
-CFG‑1…CFG‑5 без изменений (валидность путей, инварианты, сверка bbox vs маска, корректность единиц СИ, лог «эффективных» ТТХ).
-
-### 6. Версии и совместимость
-
-- meta.version — версия файла корабля; сокращение проекта — **U2**.
-- Устаревшее propulsion.accel_cap_g поддерживается как fallback, но при наличии g_limits игнорируется с предупреждением.
-
-### 7. Контракт совместимости (выжимка)
-
-Каноника — в «U2 — ТЗ AppConfig v0.5.3». Коротко: в AppConfig нет ship.*/assist.*/g_limits.*; порог альфы берём из ship.sprite.alpha_thr; горячей смены нет.
+> Конфиги читаются **только при запуске**. Горячая смена корабля не поддерживается. Сокращение проекта — **U2**.
 
 ---
 
-## 2) ShipConfig Presets — v0.5.3
+## 1. Базис симуляции
 
-> Внимание: пример app.json **не дублируется** здесь (см. «U2 — App Config Presets (v0.5.3)»).
+* Временной шаг: `dt = 1/tick_rate_hz`, по умолчанию **60 Гц** (из `app.json/world.tick_rate_hz`).
+* Предел «медленного света»: `c'` (**1000 м/с** для первых тестов; `app.json/world.c_prime`).
+* Пространство: тороидальное поле `bounds_rect_m` с wrap‑around; телеметрия ведётся в СИ (м, м/с, рад, кг).
 
-### ships/fighter/fighter_v01.json
+### 1.1. Релятивистские клампы (SR‑приближение)
 
-```javascript
-{
-  "meta": { "id": "fighter_v01", "class": "fighter", "name": "U2 Test Fighter", "version": "0.5.3", "author": "U2 Team" },
-  "mass": { "mass_kg": 10000, "inertia_override": null },
-  "geometry": { "bbox_m": { "width": 25.0, "length": 20.5 }, "hull_radius_m": 16.17 },
-  "sprite": { "path": "assets/ships/fighter_top.png", "size_px": { "w": 512, "h": 512 }, "pivot_px": { "x": 256, "y": 256 }, "orientation": "nose_right", "alpha_thr": 16, "m_per_px": 0.05 },
-  "propulsion": { "main_engine_thrust_max_N": 1100000 },
-  "rcs": { "strafe_thrust_N": 160000, "turn_alpha_max_radps2": 1.8, "turn_omega_max_radps": 2.0 },
-  "g_limits": { "profile": "fighter", "longitudinal": { "sustained_g": 6.0, "burst_g": 8.0, "burst_duration_s": 2.0, "recovery_cooldown_s": 5.0 }, "lateral": { "sustained_g": 4.0, "burst_g": 6.0, "burst_duration_s": 1.5, "recovery_cooldown_s": 4.0 }, "behavior": { "smoothing_tau_s": 0.16, "blackout_model": "none" } },
-  "assist": { "coupled_enabled": true, "coupled_omega_cap_radps": 1.2, "coupled_alpha_cap_radps2": 0.9, "coupled_align_gain": 0.6, "coupled_deadzone_deg": 3, "autobrake_eps_mps": 0.1 },
-  "spawn": { "spawn_grace_seconds": 2.0 },
-  "tags": ["fighter", "balanced", "test"]
-}
-```
+* Продольное ускорение вдоль вектора скорости ограничивается `/γ³`, поперечное — `/γ`.
+* Итоговое ускорение = `min(тяга/м, SR‑клампы, g_limits)` по соответствующим осям.
+* Формула: `γ = 1 / sqrt(1 − (|v|/c')²)`; при `|v| ≥ 0.999·c'` численно клампим `|v|` для устойчивости.
 
-### ships/courier/courier_v01.json
+### 1.2. Система координат и углы
 
-```javascript
-{
-  "meta": { "id": "courier_v01", "class": "courier", "name": "U2 Courier Mk.I", "version": "0.5.3", "author": "U2 Team" },
-  "mass": { "mass_kg": 8000 },
-  "geometry": { "bbox_m": { "width": 16.0, "length": 30.0 }, "hull_radius_m": 17.0 },
-  "sprite": { "path": "assets/ships/courier_top.png", "size_px": { "w": 512, "h": 512 }, "pivot_px": { "x": 256, "y": 256 }, "orientation": "nose_right", "alpha_thr": 16, "m_per_px": 0.058 },
-  "propulsion": { "main_engine_thrust_max_N": 700000 },
-  "rcs": { "strafe_thrust_N": 140000, "turn_alpha_max_radps2": 2.0, "turn_omega_max_radps": 2.2 },
-  "g_limits": { "profile": "courier", "longitudinal": { "sustained_g": 8.0, "burst_g": 11.0, "burst_duration_s": 1.8, "recovery_cooldown_s": 5.0 }, "lateral": { "sustained_g": 6.0, "burst_g": 8.0, "burst_duration_s": 1.3, "recovery_cooldown_s": 4.0 }, "behavior": { "smoothing_tau_s": 0.14, "blackout_model": "none" } },
-  "assist": { "coupled_enabled": true, "coupled_omega_cap_radps": 1.3, "coupled_alpha_cap_radps2": 1.0, "coupled_align_gain": 0.62, "coupled_deadzone_deg": 3, "autobrake_eps_mps": 0.1 },
-  "spawn": { "spawn_grace_seconds": 2.0 },
-  "tags": ["courier", "fast", "civilian"]
-}
-```
-
-### ships/freighter/freighter_v01.json
-
-```javascript
-{
-  "meta": { "id": "freighter_v01", "class": "freighter", "name": "U2 Heavy Freighter", "version": "0.5.3", "author": "U2 Team" },
-  "mass": { "mass_kg": 120000 },
-  "geometry": { "bbox_m": { "width": 80.0, "length": 120.0 }, "hull_radius_m": 72.11 },
-  "sprite": { "path": "assets/ships/freighter_top.png", "size_px": { "w": 1024, "h": 1024 }, "pivot_px": { "x": 512, "y": 512 }, "orientation": "nose_right", "alpha_thr": 24, "m_per_px": 0.12 },
-  "propulsion": { "main_engine_thrust_max_N": 3300000 },
-  "rcs": { "strafe_thrust_N": 100000, "turn_alpha_max_radps2": 0.8, "turn_omega_max_radps": 0.9 },
-  "g_limits": { "profile": "freighter", "longitudinal": { "sustained_g": 2.5, "burst_g": 3.5, "burst_duration_s": 2.5, "recovery_cooldown_s": 8.0 }, "lateral": { "sustained_g": 2.0, "burst_g": 3.0, "burst_duration_s": 2.0, "recovery_cooldown_s": 6.0 }, "behavior": { "smoothing_tau_s": 0.26, "blackout_model": "none" } },
-  "assist": { "coupled_enabled": true, "coupled_omega_cap_radps": 0.7, "coupled_alpha_cap_radps2": 0.5, "coupled_align_gain": 0.7, "coupled_deadzone_deg": 4, "autobrake_eps_mps": 0.1 },
-  "spawn": { "spawn_grace_seconds": 2.0 },
-  "tags": ["freighter", "cargo", "stable"]
-}
-```
-
-### ships/military/military_medium_v01.json
-
-```javascript
-{
-  "meta": { "id": "military_medium_v01", "class": "military.medium", "name": "U2 Corvette/Frigate", "version": "0.5.3", "author": "U2 Team" },
-  "mass": { "mass_kg": 40000 },
-  "geometry": { "bbox_m": { "width": 40.0, "length": 60.0 }, "hull_radius_m": 36.06 },
-  "sprite": { "path": "assets/ships/military_medium_top.png", "size_px": { "w": 1024, "h": 1024 }, "pivot_px": { "x": 512, "y": 512 }, "orientation": "nose_right", "alpha_thr": 20, "m_per_px": 0.08 },
-  "propulsion": { "main_engine_thrust_max_N": 1800000 },
-  "rcs": { "strafe_thrust_N": 180000, "turn_alpha_max_radps2": 1.0, "turn_omega_max_radps": 1.2 },
-  "g_limits": { "profile": "military.medium", "longitudinal": { "sustained_g": 4.0, "burst_g": 6.0, "burst_duration_s": 2.2, "recovery_cooldown_s": 6.0 }, "lateral": { "sustained_g": 3.0, "burst_g": 5.0, "burst_duration_s": 2.0, "recovery_cooldown_s": 5.0 }, "behavior": { "smoothing_tau_s": 0.21, "blackout_model": "none" } },
-  "assist": { "coupled_enabled": true, "coupled_omega_cap_radps": 0.9, "coupled_alpha_cap_radps2": 0.7, "coupled_align_gain": 0.65, "coupled_deadzone_deg": 3, "autobrake_eps_mps": 0.1 },
-  "spawn": { "spawn_grace_seconds": 2.0 },
-  "tags": ["military", "medium", "crew-safe"]
-}
-```
-
-### ships/military/military_heavy_v01.json
-
-```javascript
-{
-  "meta": { "id": "military_heavy_v01", "class": "military.heavy", "name": "U2 Destroyer/Cruiser", "version": "0.5.3", "author": "U2 Team" },
-  "mass": { "mass_kg": 200000 },
-  "geometry": { "bbox_m": { "width": 70.0, "length": 110.0 }, "hull_radius_m": 65.19 },
-  "sprite": { "path": "assets/ships/military_heavy_top.png", "size_px": { "w": 2048, "h": 2048 }, "pivot_px": { "x": 1024, "y": 1024 }, "orientation": "nose_right", "alpha_thr": 24, "m_per_px": 0.09 },
-  "propulsion": { "main_engine_thrust_max_N": 6600000 },
-  "rcs": { "strafe_thrust_N": 220000, "turn_alpha_max_radps2": 0.6, "turn_omega_max_radps": 0.8 },
-  "g_limits": { "profile": "military.heavy", "longitudinal": { "sustained_g": 3.0, "burst_g": 5.0, "burst_duration_s": 3.0, "recovery_cooldown_s": 9.0 }, "lateral": { "sustained_g": 2.0, "burst_g": 4.0, "burst_duration_s": 2.5, "recovery_cooldown_s": 7.0 }, "behavior": { "smoothing_tau_s": 0.27, "blackout_model": "none" } },
-  "assist": { "coupled_enabled": true, "coupled_omega_cap_radps": 0.6, "coupled_alpha_cap_radps2": 0.4, "coupled_align_gain": 0.7, "coupled_deadzone_deg": 4, "autobrake_eps_mps": 0.1 },
-  "spawn": { "spawn_grace_seconds": 2.0 },
-  "tags": ["military", "heavy", "crew-protect"]
-}
-```
+* Оси экрана/мира: `+X` — вправо, `+Y` — вверх.
+* Угол курса `theta` отсчитывается от оси `+X`; положительное направление — против часовой стрелки (CCW).
+* Угловая скорость `omega` > 0 соответствует вращению CCW.
 
 ---
 
-**Готово.** Этот файл является каноническим источником как для **ТЗ ShipConfig v0.5.3**, так и для **Presets v0.5.3**. Для AppConfig используйте документ **«U2 — App Config Presets (v0.5.3)»**.
+## 2. Управление (ПК)
 
+Карта клавиш фиксированная (см. `app.json/input.keys`):
 
+* **Тяга вперёд/назад:** `W/S`
+* **Стрейф влево/вправо:** `A/D`
+* **Поворот влево/вправо:** `Q/E`
+* **Торможение (Brake ассист):** `Space`
+* **Coupled/Decoupled:** `C` (переключение)
+* **Автопилот (Random):** `R` — **переключение (вкл/выкл)**; по умолчанию активен сразу после старта приложения. Любой ручной ввод (клавиатура/тач) отключает режим; повторное `R` включает снова. Режим автопилота не изменяет состояние Coupled/Decoupled.
+* **Зум:** `+` / `-`
+* **Коллизии:** `F2` — режим AABB/Alpha; `F3` — показать/скрыть оверлей
+* **Сервис:** `F12` — скриншот
+
+### 2.1. Coupled vs Decoupled
+
+* **Coupled (по умолчанию):** ассист выравнивает нос к вектору движения («управляемый занос»). Ограничения `coupled_omega_cap_radps`, `coupled_alpha_cap_radps2` берутся из `ship.json/assist`. Ручной поворот (Q/E) ограничен `ship.json/rcs.turn_*`. **Итоговые пределы ω/α в Coupled:** `min(assist.coupled_*, rcs.turn_*)`.
+* **Decoupled:** ориентация не привязана к вектору скорости; действуют только `ship.json/rcs.turn_*` и SR‑клампы.
+
+---
+
+## 3. Управление (мобайл)
+
+Схема `dual_stick` (см. `app.json/input.touch`). На мобильных **нет UI‑кнопок** для маски/режима коллизий (F2/F3 доступны только на ПК).
+
+* Левый стик — тяга/стрейф (оси)
+* Быстрый «нос» (pad) — поворот
+* Удержание ≥`hold_to_enable_ms` на pad — временный Decoupled; двойной тап — фиксация Decoupled
+* Отпускание стика — опциональный автотормоз (если `brake_on_release`). Кнопка **Brake** (мобайл) эквивалентна `Space` на ПК: включает ассист плавного торможения до |v|→0 с учётом SR‑клампов и g‑лимитов, **без изменения** состояния Coupled/Decoupled. Нажатие Brake **не снимает** фиксацию Decoupled.
+
+**Safe area и ориентация:** при смене ориентации экрана safe area пересчитывается, все элементы `layout.*` позиционируются в процентах относительно актуальной safe‑области.
+
+**Автопилот (мобайл):** при старте активен; первый любой жест/ввод отключает режим. Отдельной UI‑кнопки для повторного включения в v0.5.3 нет.
+
+**Зум на мобайле:** кнопки `zoom_plus`/`zoom_minus` изменяют масштаб в пределах `render.zoom.min..max` (см. AppConfig). Один тап — изменение на **10%** диапазона зума; удержание — авто‑повтор ~ **100 мс** до достижения пределов. Значения клампятся в [min,max] и отражаются в HUD.
+
+---
+
+## 4. Коллизии и оверлей
+
+* **Режимы:** `AABB` (ось‑aligned bbox) и `Alpha` (маска непрозрачных пикселей спрайта корабля/астероида при `alpha ≥ alpha_thr`).
+* **Переключение:** `F2` — режим; `F3` — показать/скрыть оверлей. На старте — как в `app.json/collision` (`mode_default`, `overlay_visible_default`).
+* **Фоллбек:** при «tainted canvas» **и/или** вне диапазона зума → автоматический `AABB` (см. `collision.fallback_threshold`).
+* **Визуализация:** цвет/прозрачность из `collision.mask`; порог альфы берётся из `ship.json/sprite.alpha_thr`. Альфа‑маска каждого спрайта вычисляется один раз на старте и кэшируется.
+
+**Уточнение AABB и границ:** AABB трактуется как *мировая осевая* bbox вокруг ориентированного спрайта (поворот спрайта учитывается, но коробка остаётся осевой в координатах мира XY). При wrap‑around проверка коллизий выполняется **на всех топологических образах** объекта, которые пересекают `bounds_rect_m`, чтобы исключить туннелирование через шов.
+
+---
+
+## 5. Геометрия корабля и спрайт
+
+Полная спецификация геометрии, осей и соответствия маске спрайта находится в **«U2 — ТЗ ShipConfig v0.5.3» (§3 Geometry)**. В FlightTest фиксируется только правило валидации: tight‑bbox по маске (`alpha ≥ alpha_thr`) через `m_per_px` должен совпадать с `ship.json/geometry.bbox_m` в допустимом допуске. Пример 25.0×20.5 м относится **только к тестовому истребителю** и не переопределяет данные из `ship.json` других кораблей.
+
+---
+
+## 6. Астероиды
+
+* Генерация по `app.json/asteroids`: покрытие, диапазон радиусов, плотность (камень по умолчанию 2700 кг/м³), распределение `lognormal|uniform` (усечённое).
+* **Столкновения:** при контакте корабль уничтожается; масса астероида уменьшается: `M' = max(M − m_ship, 0)`. Радиус пересчитывается из объёма: `r' = r · (M'/M)^(1/3)`.
+* `margin_m` предотвращает спавны в зоне старта и у границ.
+
+---
+
+## 7. Перезапуск/смерть
+
+* Game Over при столкновении (корабль уничтожен); Restart возвращает мировой стейт к началу: корабль — в стартовой позиции/ориентации/скоростях; UI — к дефолтам; зум — к `render.zoom.start`.
+* Грейс после спавна: `ship.json/spawn.spawn_grace_seconds` (по умолчанию 2.0 с).
+
+**Что именно сбрасывается при Restart:** позиция/скорость/угол/угловая скорость корабля; состояние ассистов (Coupled=ON); режим коллизий = `collision.mode_default`; видимость оверлея = `collision.overlay_visible_default`; зум = `render.zoom.start`; **состояние автопилота = ****`autopilot.random_enabled_default`**.
+
+**Логирование Restart:** в момент Restart в лог добавляется запись с текущими флагами `collision_mode`, `overlay_visible`, `coupled`.
+
+---
+
+## 8. HUD и телеметрия
+
+* Компактный HUD с адаптацией к ориентации; безопасные поля — `hud.safe_insets_px`.
+* Показатели: скорость `|v|`, `γ`, `|a|/g`, статус Coupled.
+* Логи (если включены): `t,x,y,vx,vy,|v|,gamma,ax,ay,|a|/g,theta,omega,zoom…` (см. `app.json/logging`).
+
+**Единицы телеметрии:** `x,y` — м; `vx,vy,|v|` — м/с; `ax,ay` — м/с²; `|a|/g` — безразмерное (g0=9.80665 м/с²); `theta` — рад; `omega` — рад/с; `gamma` — безразмерное. Диапазон `theta` — (−π, π], ноль по +X, положительное направление — CCW.
+
+---
+
+## 9. Тест‑набор (приёмка)
+
+**FF‑серия (функциональные):**
+
+* **FF1:** переключение AABB/Alpha (`F2`), оверлей (`F3`), видимость/цвет соответствуют `app.json/collision`.
+* **FF2:** Coupled: выравнивание носа к вектору скорости при произвольных входах; пределы ω/α соблюдают `assist.coupled_*` и `rcs.turn_*`.
+* **FF3:** Decoupled: ориентация полностью независима от траектории; соблюдаются SR‑клампы.
+* **FF4:** Столкновение с астероидом уничтожает корабль; радиус астероида уменьшается по формуле из §6.
+* **FF5:** Restart: стейт сброшен; зум = `render.zoom.start`; wrap‑around работает корректно.
+* **FF6:** **Автопилот Random:** активен по умолчанию; отключается на первый ручной ввод; клавиша `R` — **toggle** (повторное `R` включает снова); действует в рамках SR‑клампов и g‑лимитов; не меняет Coupled/Decoupled.
+
+**MF‑серия (мобайл):**
+
+* **MF1:** dual_stick: оси тяги/стрейфа и поворот через pad работают, deadzone/чувствительность — по конфигу.
+* **MF2:** Удержание pad ≥ `hold_to_enable_ms` — временный Decoupled; двойной тап — фиксация; отпускание стика — Brake (если включён). Нажатие Brake не влияет на режим Coupled/Decoupled и не снимает фиксацию.
+* **MF3:** Нет UI‑кнопок для маски/режима; F‑клавиши вне мобайла.
+
+**PP‑серия (производительность):**
+
+* **PP1:** Инициализация альфа‑маски 512×512 ≤ 50 мс на стенд‑пресете (CPU i5‑8250U/экв., RAM 8 GB, Chrome 120+/Firefox 121+, Canvas 1920×1080).
+* **PP2:** При `asteroids.coverage_fraction = 0.015` и `render.target_fps = 60` медианный FPS ≥ 55; просадки ниже 50 FPS длятся не более 100 мс подряд на стенд‑пресете. Стенд‑профиль выбирается из `debug.benchmark_profile` (см. AppConfig).
+
+---
+
+## 10. Совместимость и границы ответственности
+
+* Все ключи мира/UI/управления/коллизий/логов/отладки живут в `app.json`. Любые `ship.*`/`assist.*`/`g_limits.*` в `app.json` игнорируются с **лог‑предупреждением** и не влияют на рантайм (см. AppConfig‑ТЗ).
+* Все ТТХ корабля (включая g‑лимиты и ассисты) живут в `ship.json`.
+* Клавиша `R` относится к **автопилоту**; функции «randomize asteroids/seed++» из дебаг‑конфигов **удалены в v0.5.3** или доступны только из внутренних инструментов.
+
+---
+
+## 11. Ссылки и версии
+
+* **U2 — ТЗ AppConfig v0.5.3 (canonical)**
+* **U2 — ТЗ ShipConfig v0.5.3 (ТЗ + Presets)**
+* **U2 — App Config Presets (v0.5.3)**
+
+### LEGACY (не использовать)
+
+* Любые версии документов с сокращением «UU» вместо «U2»
+* Любые версии FlightTest до v0.5.3 и редакции без раздела об автопилоте
+
+---
+
+## 12. Глоссарий
+
+* **Coupled/Decoupled** — режимы ассиста ориентации.
+* **AABB/Alpha** — модели коллизий: прямоугольник / маска прозрачности.
+* **γ (гамма)** — фактор Лоренца в SR‑приближении.
+* **pivot** — опорная точка спрайта.
+* **wrap‑around** — тороидальный мир: выход за границу переносит на противоположную сторону.
+* **tainted canvas** — состояние Canvas2D, при котором недоступны операции чтения пикселей (`getImageData`) из‑за рисования кросс‑доменных изображений без корректных CORS‑заголовков/учётных данных или из небезопасных источников. При обнаружении таинта коллизии автоматически переводятся в режим **AABB** (см. §4 фоллбек).
